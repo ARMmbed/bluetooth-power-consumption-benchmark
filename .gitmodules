@@ -1,0 +1,3 @@
+[submodule "mbed-os-ble-utils"]
+	path = mbed-os-ble-utils
+	url = https://github.com/ARMmbed/mbed-os-ble-utils
