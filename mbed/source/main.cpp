@@ -20,6 +20,7 @@
 
 #include "ble/BLE.h"
 #include "pretty_printer.h"
+#include "bt_test_state.hpp"
 
 /** This program enters different BLE states according to operator input, allowing power consumption to be
  * measured.
@@ -30,17 +31,9 @@ using namespace std::literals::chrono_literals;
 static const char DEVICE_NAME[] = "Power Consumption";
 static const uint16_t MAX_ADVERTISING_PAYLOAD_SIZE = 50;
 
-static const ble::scan_duration_t SCAN_TIME(1000);
-static const events::EventQueue::duration CONNECT_TIME(10000);
-
-static const ble::adv_duration_t ADVERTISE_TIME(1000);
-static const ble::advertising_type_t PERIODIC_ADV_TYPE(ble::advertising_type_t::NON_CONNECTABLE_UNDIRECTED);
-static const bool PERIODIC_ADV_PDU(false);
-
 events::EventQueue event_queue;
 
-class PowerConsumptionTest : private mbed::NonCopyable<PowerConsumptionTest>, public ble::Gap::EventHandler
-{
+class PowerConsumptionTest : public ble::Gap::EventHandler {
 public:
     PowerConsumptionTest(BLE& ble, events::EventQueue& event_queue) :
         _ble(ble),
@@ -89,112 +82,100 @@ private:
     void next_state()
     {
         printf(
-            "Select state:\r\n"
-            " * Advertise\r\n"
-            " * Scan \r\n"
-            " * Periodic advertise\r\n"
+            "Enter one of the following commands:\r\n"
+            " * a - Advertise\r\n"
+            " * s - Scan \r\n"
+            " * p - Toggle periodic adv/scan flag (currently %s)\r\n",
+            _is_periodic ? "ON" : "OFF" 
         );
 
         while (true) {
-            printf("Choose one [a/s/p]: ");
+            printf("Enter command: ");
             fflush(stdout);
             int c = getchar();
             putchar(c);
             switch (tolower(c)) {
                 case 'a': advertise();                    return;
                 case 's': scan();                         return;
-                case 'p': advertise_periodic();           return;
+                case 'p': toggle_periodic();              return;
                 default:  printf("\r\nInvalid choice. "); break;
             }
         }
     }
 
-    void enter_state(const char* name, bool is_scanner, bool is_periodic, bool is_connecting_or_syncing = false)
+    void toggle_periodic()
     {
-        printf("\r\n#%s\r\n", name);
-        _is_scanner = is_scanner;
-        _is_periodic = is_periodic;
-        _is_connecting_or_syncing = is_connecting_or_syncing;
+        _is_periodic = !_is_periodic;
+        printf("\r\nPeriodic mode toggled %s\r\n", _is_periodic ? "ON" : "OFF");
+        _event_queue.call(this, &PowerConsumptionTest::next_state);
+    }
+
+    void update_state(bt_test_state_t state)
+    {
+        if (state != _state) {
+            print_bt_test_state(state, [](const char* s) { printf("\r\n#%s\r\n", s); });
+        }
+
+        _state = state;
+        _is_scanner = (state == bt_test_state_t::SCAN) || (state == bt_test_state_t::CONNECT_MASTER);
+        _is_connecting_or_syncing = (state == bt_test_state_t::CONNECT_PERIPHERAL) || (state == bt_test_state_t::CONNECT_MASTER);
+    }
+
+    bool have_periodic_advertising()
+    {
+        return _ble.gap().isFeatureSupported(ble::controller_supported_features_t::LE_EXTENDED_ADVERTISING)
+            && _ble.gap().isFeatureSupported(ble::controller_supported_features_t::LE_PERIODIC_ADVERTISING)
+        ;
     }
 
     /** Set up and start advertising */
     void advertise()
     {
-        enter_state(__func__, false, false);
+        update_state(bt_test_state_t::ADVERTISE);
         ble_error_t error;
+        if (_is_periodic) {
+            // Perform feature test.
+            if (!have_periodic_advertising()) {
+                printf("Periodic advertising not supported, cannot run test.\r\n");
+                return;
+            }
 
-        // Set payload for legacy handle.        
+            // Set advertising parameters. We only do this once, as it allocates memory and we do not call 
+            // destroyAdvertisingSet.
+            if (!_have_adv_handle) {
+                ble::AdvertisingParameters adv_parameters(ble::advertising_type_t::NON_CONNECTABLE_UNDIRECTED);
+                adv_parameters.setUseLegacyPDU(false);
+
+                error = _ble.gap().createAdvertisingSet(&_adv_handle, adv_parameters);
+                if (error) {
+                    print_error(error, "Gap::createAdvertisingSet() failed");
+                    return;
+                }
+
+                error = _ble.gap().setAdvertisingParameters(_adv_handle, adv_parameters);
+                if (error) {
+                    print_error(error, "Gap::setAdvertisingParameters() failed");
+                    return;
+                }
+
+                _have_adv_handle = true;
+            }
+        } else {
+            // Use legacy advertising handle.
+            _adv_handle = ble::LEGACY_ADVERTISING_HANDLE;
+        }
+
+        // Set advertising payload.
         _adv_data_builder.setFlags();
         _adv_data_builder.setName(DEVICE_NAME);
-        error = _ble.gap().setAdvertisingPayload(
-            ble::LEGACY_ADVERTISING_HANDLE,
-            _adv_data_builder.getAdvertisingData()
-        );
+        error = _ble.gap().setAdvertisingPayload(_adv_handle, _adv_data_builder.getAdvertisingData());
         if (error) {
             print_error(error, "Gap::setAdvertisingPayload() failed");
             return;
         }
 
-        // Start advertising with legacy handle.
-        error = _ble.gap().startAdvertising(ble::LEGACY_ADVERTISING_HANDLE, ADVERTISE_TIME);
-        if (error) {
-            print_error(error, "Gap::startAdvertising() failed");
-            return;
-        }
-    }
-
-    /** Set up and start periodic advertising. */ 
-    void advertise_periodic()
-    {
-        enter_state(__func__, false, true);
-
-        // Perform feature test.
-        if (!_ble.gap().isFeatureSupported(ble::controller_supported_features_t::LE_EXTENDED_ADVERTISING) ||
-            !_ble.gap().isFeatureSupported(ble::controller_supported_features_t::LE_PERIODIC_ADVERTISING)) {
-            printf("Periodic advertising not supported, cannot run test.\r\n");
-            return;
-        }
-
-        ble_error_t error;
-
-        // Set advertising parameters. We only do this once, as it allocates memory and we do not call 
-        // destroyAdvertisingSet.
-        if (!_have_adv_handle) {
-            ble::AdvertisingParameters adv_parameters(PERIODIC_ADV_TYPE);
-            adv_parameters.setUseLegacyPDU(PERIODIC_ADV_PDU);
-
-            error = _ble.gap().createAdvertisingSet(
-                &_adv_handle,
-                adv_parameters
-            );
-            if (error) {
-                print_error(error, "Gap::createAdvertisingSet() failed");
-                return;
-            }
-
-            error = _ble.gap().setAdvertisingParameters(_adv_handle, adv_parameters);
-            if (error) {
-                print_error(error, "Gap::setAdvertisingParameters() failed");
-                return;
-            }
-
-            // Set advertising payload.
-            _adv_data_builder.setFlags();
-            _adv_data_builder.setName(DEVICE_NAME);
-            error = _ble.gap().setAdvertisingPayload(
-                _adv_handle,
-                _adv_data_builder.getAdvertisingData()
-            );
-            if (error) {
-                print_error(error, "Gap::setAdvertisingPayload() failed");
-                return;
-            }
-
-            _have_adv_handle = true;
-        }
-
-        // Start advertising. Periodic advertising will be enabled in onAdvertisingBegin.
-        error = _ble.gap().startAdvertising(_adv_handle, ADVERTISE_TIME);
+        // Start advertising.
+        error = _ble.gap().startAdvertising(_adv_handle, _advertise_time);
         if (error) {
             print_error(error, "Gap::startAdvertising() failed");
             return;
@@ -204,7 +185,7 @@ private:
     /** Set up and start scanning */
     void scan()
     {
-        enter_state(__func__, true, false);
+        update_state(bt_test_state_t::SCAN);
 
         ble::ScanParameters scan_params;
         scan_params.setOwnAddressType(ble::own_address_type_t::RANDOM);
@@ -215,24 +196,24 @@ private:
             return;
         }
 
-        error = _ble.gap().startScan(SCAN_TIME);
+        error = _ble.gap().startScan(_scan_time);
         if (error) {
             print_error(error, "Gap::startScan failed");
             return;
         }
 
-        printf("Scanning for %ums\r\n", SCAN_TIME.valueInMs());
+        printf("Scanning for %ums\r\n", _scan_time.valueInMs());
     }
 
     void connect_peripheral()
     {
-        enter_state(__func__, false, _is_periodic, true);
+        update_state(bt_test_state_t::CONNECT_PERIPHERAL);
         printf("Connected as peripheral\r\n");
     }
 
     void connect_master()
     {
-        enter_state(__func__, true, _is_periodic, true);
+        update_state(bt_test_state_t::CONNECT_MASTER);
         printf("Connected as master\r\n");
     }
 
@@ -258,9 +239,9 @@ private:
                 return;
             }
 
-            printf("Periodic advertising for %ums\r\n", ADVERTISE_TIME.valueInMs());
+            printf("Periodic advertising for %ums\r\n", _advertise_time.valueInMs());
         } else {
-            printf("Advertising started for %ums\r\n", ADVERTISE_TIME.valueInMs());
+            printf("Advertising started for %ums\r\n", _advertise_time.valueInMs());
         }
     }
 
@@ -312,7 +293,7 @@ private:
                     );
 
                     if (error) {
-                        print_error(error, "Error caused by Gap::createSync");
+                        print_error(error, "Gap::createSync failed");
                         return;
                     }
                 } else {
@@ -325,7 +306,7 @@ private:
                     );
 
                     if (error) {
-                        print_error(error, "Error caused by Gap::connect");
+                        print_error(error, "Gap::connect failed");
                         return;
                     }
                 }
@@ -356,7 +337,7 @@ private:
             print_address(event.getPeerAddress().data());
             if (_is_scanner) {
                 _event_queue.call_in(
-                    CONNECT_TIME,
+                    _connect_time,
                     [this, handle = event.getConnectionHandle()] {
                         _ble.gap().disconnect(
                             handle,
@@ -379,17 +360,19 @@ private:
     void onDisconnectionComplete(const ble::DisconnectionCompleteEvent &event) override
     {
         printf("Disconnected\r\n");
+        _is_connecting_or_syncing = false;
         next_state();
     }
 
     /** Called when first advertising packet in periodic advertising is received. */
     void onPeriodicAdvertisingSyncEstablished(const ble::PeriodicAdvertisingSyncEstablishedEvent &event) override
     {
-        if (event.getStatus() == BLE_ERROR_NONE) {
+        ble_error_t error = event.getStatus();
+        if (error) {
+            print_error(error, "Sync with periodic advertising failed");
+        } else {
             printf("Synced with periodic advertising\r\n");
             _sync_handle = event.getSyncHandle();
-        } else {
-            printf("Sync with periodic advertising failed\r\n");
         }
     }
 
@@ -402,6 +385,10 @@ private:
     }
 
 private:
+    ble::scan_duration_t _scan_time = ble::scan_duration_t(MBED_CONF_APP_SCAN_TIME);
+    events::EventQueue::duration _connect_time = events::EventQueue::duration(MBED_CONF_APP_CONNECT_TIME);
+    ble::adv_duration_t _advertise_time = ble::adv_duration_t(MBED_CONF_APP_ADVERTISE_TIME);
+
     BLE &_ble;
     events::EventQueue &_event_queue;
 
@@ -411,6 +398,7 @@ private:
     ble::advertising_handle_t _adv_handle = ble::INVALID_ADVERTISING_HANDLE;
     ble::periodic_sync_handle_t _sync_handle = ble::INVALID_ADVERTISING_HANDLE;
 
+    bt_test_state_t _state;
     bool _is_connecting_or_syncing = false;
     bool _is_periodic = false;
     bool _is_scanner = false;

@@ -1,0 +1,16 @@
+{
+    "config": {
+        "scan_time": {
+            "value": 60000,
+            "required": true
+        },
+        "advertise_time": {
+            "value": 60000,
+            "required": true
+        },
+        "connect_time": {
+            "value": 60000,
+            "required": true
+        }
+    }
+}
