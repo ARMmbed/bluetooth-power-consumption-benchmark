@@ -35,7 +35,7 @@ events::EventQueue event_queue;
 
 class PowerConsumptionTest : public ble::Gap::EventHandler {
 public:
-    PowerConsumptionTest(BLE& ble, events::EventQueue& event_queue) :
+    PowerConsumptionTest(BLE& ble, events::EventQueue& eq) :
         _ble(ble),
         _event_queue(event_queue),
         _adv_data_builder(_adv_buffer)
@@ -279,7 +279,7 @@ private:
                 /* if we haven't established our roles connect, otherwise sync with advertising */
                 if (_is_periodic) {
                     printf(
-                        "We found the peer, syncing with SID %d and periodic interval %dms\r\n",
+                        "We found the peer, syncing with SID %d and periodic interval %ums\r\n",
                         event.getSID(),
                         event.getPeriodicInterval().valueInMs()
                     );
