@@ -30,6 +30,7 @@ using namespace std::literals::chrono_literals;
 
 static const char DEVICE_NAME[] = "Power Consumption";
 static const uint16_t MAX_ADVERTISING_PAYLOAD_SIZE = 50;
+static constexpr size_t MAC_ADDRESS_LENGTH = 2*6+5; // 6 2-digit bytes + 5 optional colon separators.
 
 events::EventQueue event_queue;
 
@@ -85,7 +86,8 @@ private:
             "Enter one of the following commands:\r\n"
             " * a - Advertise\r\n"
             " * s - Scan \r\n"
-            " * p - Toggle periodic adv/scan flag (currently %s)\r\n",
+            " * p - Toggle periodic adv/scan flag (currently %s)\r\n"
+            " * m - Set/unset peer MAC address to connect by MAC instead of name\n",
             _is_periodic ? "ON" : "OFF" 
         );
 
@@ -98,6 +100,7 @@ private:
                 case 'a': advertise();                    return;
                 case 's': scan();                         return;
                 case 'p': toggle_periodic();              return;
+                case 'm': read_target_mac();              return;
                 default:  printf("\r\nInvalid choice. "); break;
             }
         }
@@ -107,6 +110,50 @@ private:
     {
         _is_periodic = !_is_periodic;
         printf("\r\nPeriodic mode toggled %s\r\n", _is_periodic ? "ON" : "OFF");
+        _event_queue.call(this, &PowerConsumptionTest::next_state);
+    }
+
+    void read_target_mac()
+    {
+        _target_mac_len = 0;
+        memset(_target_mac, 0, sizeof(_target_mac));
+
+        printf(
+            "\r\n* Set target MAC by inputting 6 hex bytes (12 digits) with optional : separators"
+            "\r\n* Unset target MAC and use name to match by pressing ENTER"
+            "\r\nTarget MAC: "
+        );
+        fflush(stdout);
+        int xdigits = 0;
+        do {
+            int c = tolower(getchar());
+            // Break on '\n', append hex digit, ignore other chars.
+            if (c == '\n') {
+                break;
+            } else if (isxdigit(c)) {
+                _target_mac[_target_mac_len] = c;
+                _target_mac_len++;
+                xdigits++;
+                putchar(c);
+            }
+
+            // Insert a colon when needed.
+            if (xdigits == 2 && _target_mac_len < MAC_ADDRESS_LENGTH) {
+                _target_mac[_target_mac_len] = ':';
+                _target_mac_len++;
+                xdigits = 0;
+                putchar(':');
+            }
+        } while (_target_mac_len < MAC_ADDRESS_LENGTH);
+
+        if (_target_mac_len == 0) {
+            printf("Will look for peer with name \"%s\"\r\n", DEVICE_NAME);
+        } else if (_target_mac_len == MAC_ADDRESS_LENGTH) {
+            printf("\r\nWill look for peer with MAC \"%s\"\r\n", _target_mac);
+        } else {
+            printf("\r\nInvalid MAC \"%s\"\r\n", _target_mac);
+        }
+
         _event_queue.call(this, &PowerConsumptionTest::next_state);
     }
 
@@ -253,6 +300,37 @@ private:
         }
     }
 
+    bool peer_is_match(const ble::AdvertisingReportEvent &event)
+    {
+        if (_target_mac_len == 0) {
+            // Match by name.
+            ble::AdvertisingDataParser adv_parser(event.getPayload());
+            while (adv_parser.hasNext()) {
+                ble::AdvertisingDataParser::element_t field = adv_parser.next();
+                if (field.type == ble::adv_data_type_t::COMPLETE_LOCAL_NAME
+                    && field.value.size() == strlen(DEVICE_NAME)
+                    && memcmp(field.value.data(), DEVICE_NAME, field.value.size()) == 0) {
+                    printf("Peer matched by name\r\n");
+                    return true;
+                }
+            }
+        } else {
+            // Match by MAC.
+            auto peer_address = event.getPeerAddress();
+            auto raw = peer_address.data();
+            assert(peer_address.size() == 6);
+            auto peer_mac = new char[MAC_ADDRESS_LENGTH + 1];
+            sprintf(peer_mac, "%02x:%02x:%02x:%02x:%02x:%02x", raw[5], raw[4], raw[3], raw[2], raw[1], raw[0]);
+            peer_mac[MAC_ADDRESS_LENGTH] = 0;
+            if (strcmp(_target_mac, peer_mac) == 0) {
+                printf("Peer matched by MAC\r\n");
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** Look at scan payload to find a peer device and connect to it */
     void onAdvertisingReport(const ble::AdvertisingReportEvent &event) override
     {
@@ -266,58 +344,47 @@ private:
             return;
         }
 
-        ble::AdvertisingDataParser adv_parser(event.getPayload());
+        // Match peer.
+        if (peer_is_match(event)) {
+            // Sync if periodic flag is ON, otherwise connect.
+            if (_is_periodic) {
+                printf(
+                    "We found the peer, syncing with SID %d and periodic interval %ums\r\n",
+                    event.getSID(),
+                    event.getPeriodicInterval().valueInMs()
+                );
 
-        /* parse the advertising payload, looking for a discoverable device */
-        while (adv_parser.hasNext()) {
-            ble::AdvertisingDataParser::element_t field = adv_parser.next();
+                ble_error_t error = _ble.gap().createSync(
+                    event.getPeerAddressType(),
+                    event.getPeerAddress(),
+                    event.getSID(),
+                    2,
+                    ble::sync_timeout_t(ble::millisecond_t(5000))
+                );
 
-            /* identify peer by name */
-            if (field.type == ble::adv_data_type_t::COMPLETE_LOCAL_NAME &&
-                field.value.size() == strlen(DEVICE_NAME) &&
-                (memcmp(field.value.data(), DEVICE_NAME, field.value.size()) == 0)) {
-                /* if we haven't established our roles connect, otherwise sync with advertising */
-                if (_is_periodic) {
-                    printf(
-                        "We found the peer, syncing with SID %d and periodic interval %ums\r\n",
-                        event.getSID(),
-                        event.getPeriodicInterval().valueInMs()
-                    );
-
-                    ble_error_t error = _ble.gap().createSync(
-                        event.getPeerAddressType(),
-                        event.getPeerAddress(),
-                        event.getSID(),
-                        2,
-                        ble::sync_timeout_t(ble::millisecond_t(5000))
-                    );
-
-                    if (error) {
-                        print_error(error, "Gap::createSync failed");
-                        return;
-                    }
-                } else {
-                    printf("We found the peer, connecting\r\n");
-
-                    ble_error_t error = _ble.gap().connect(
-                        event.getPeerAddressType(),
-                        event.getPeerAddress(),
-                        ble::ConnectionParameters() // use the default connection parameters
-                    );
-
-                    if (error) {
-                        print_error(error, "Gap::connect failed");
-                        return;
-                    }
+                if (error) {
+                    print_error(error, "Gap::createSync failed");
+                    return;
                 }
+            } else {
+                printf("We found the peer, connecting\r\n");
 
-                /* we may have already scan events waiting to be processed
-                 * so we need to remember that we are already connecting
-                 * or syncing and ignore them */
-                _is_connecting_or_syncing = true;
+                ble_error_t error = _ble.gap().connect(
+                    event.getPeerAddressType(),
+                    event.getPeerAddress(),
+                    ble::ConnectionParameters() // use the default connection parameters
+                );
 
-                return;
+                if (error) {
+                    print_error(error, "Gap::connect failed");
+                    return;
+                }
             }
+
+            /* we may have already scan events waiting to be processed
+             * so we need to remember that we are already connecting
+             * or syncing and ignore them */
+            _is_connecting_or_syncing = true;
         }
     }
 
@@ -398,6 +465,8 @@ private:
     ble::advertising_handle_t _adv_handle = ble::INVALID_ADVERTISING_HANDLE;
     ble::periodic_sync_handle_t _sync_handle = ble::INVALID_ADVERTISING_HANDLE;
 
+    char _target_mac[MAC_ADDRESS_LENGTH + 1];
+    size_t _target_mac_len = 0;
     bt_test_state_t _state;
     bool _is_connecting_or_syncing = false;
     bool _is_periodic = false;
