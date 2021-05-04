@@ -17,6 +17,7 @@
 #include <cctype>
 #include <chrono>
 #include <events/mbed_events.h>
+#include <inttypes.h>
 
 #include "ble/BLE.h"
 #include "pretty_printer.h"
@@ -249,7 +250,7 @@ private:
             return;
         }
 
-        printf("Scanning for %ums\r\n", _scan_time.valueInMs());
+        printf("Scanning for %"PRIu32"ms\r\n", _scan_time.valueInMs());
     }
 
     void connect_peripheral()
@@ -286,9 +287,9 @@ private:
                 return;
             }
 
-            printf("Periodic advertising for %ums\r\n", _advertise_time.valueInMs());
+            printf("Periodic advertising for %"PRIu32"ms\r\n", _advertise_time.valueInMs());
         } else {
-            printf("Advertising started for %ums\r\n", _advertise_time.valueInMs());
+            printf("Advertising started for %"PRIu32"ms\r\n", _advertise_time.valueInMs());
         }
     }
 
@@ -349,7 +350,7 @@ private:
             // Sync if periodic flag is ON, otherwise connect.
             if (_is_periodic) {
                 printf(
-                    "We found the peer, syncing with SID %d and periodic interval %ums\r\n",
+                    "We found the peer, syncing with SID %d and periodic interval %"PRIu32"ms\r\n",
                     event.getSID(),
                     event.getPeriodicInterval().valueInMs()
                 );
