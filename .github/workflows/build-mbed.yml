@@ -18,10 +18,8 @@ jobs:
         - name: Install dependencies
           run: |
             cd mbed
-            git clone --depth 1 https://github.com/ARMmbed/mbed-os.git
-            git clone --depth 1 https://github.com/ARMmbed/mbed-os-ble-utils.git
-            pip install -r mbed-os/requirements.txt
             pip install --upgrade mbed-cli mbed-tools
+            mbed deploy
 
         - name: Build
           run: |
