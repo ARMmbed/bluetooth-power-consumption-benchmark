@@ -1,17 +1,17 @@
 {
     "config": {
         "scan_time": {
-            "value": 6000,
+            "value": 1000,
             "help": "How long to wait for connection when scanning (10ms)",
             "required": true
         },
         "advertise_time": {
-            "value": 6000,
+            "value": 1000,
             "help": "How long to wait for connection when advertising (10ms)",
             "required": true
         },
         "connect_time": {
-            "value": 60000,
+            "value": 10000,
             "help": "How long to stay connected when master (ms)",
             "required": true
         }

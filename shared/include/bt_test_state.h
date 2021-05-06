@@ -13,8 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifndef BT_STATE_HPP
-#define BT_STATE_HPP 1
+#ifndef BT_STATE_H
+#define BT_STATE_H 1
 
 #define BT_STATE_LIST(F)    \
     F(START)                \
@@ -29,7 +29,7 @@ enum class bt_test_state_t {
 #undef BT_STATE_DEFINE_ENUM
 };
 
-void print_bt_test_state(bt_test_state_t state, void(* print)(const char*))
+inline void print_bt_test_state(bt_test_state_t state, void(* print)(const char*))
 {
     switch (state) {
 #define BT_STATE_SWITCH_CASE(NAME) case bt_test_state_t::NAME: print(#NAME); break;
@@ -40,4 +40,4 @@ void print_bt_test_state(bt_test_state_t state, void(* print)(const char*))
 
 #undef BT_STATE_LIST
 
-#endif // ! BT_STATE_HPP
+#endif // ! BT_STATE_H

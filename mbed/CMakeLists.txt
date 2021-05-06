@@ -21,12 +21,13 @@ project(${APP_TARGET})
 
 target_include_directories(${APP_TARGET}
     PRIVATE
-        ./source
+        ../shared/include
 )
 
 target_sources(${APP_TARGET}
     PRIVATE
         source/main.cpp
+        ../shared/source/test_base.cpp
 )
 
 target_link_libraries(${APP_TARGET}
