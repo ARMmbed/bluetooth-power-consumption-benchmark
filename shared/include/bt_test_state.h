@@ -16,12 +16,14 @@
 #ifndef BT_STATE_H
 #define BT_STATE_H 1
 
+#include <functional>
+
 #define BT_STATE_LIST(F)    \
     F(START)                \
     F(SCAN)                 \
     F(ADVERTISE)            \
     F(CONNECT_PERIPHERAL) \
-    F(CONNECT_MASTER)
+    F(CONNECT_MAIN)
 
 enum class bt_test_state_t {
 #define BT_STATE_DEFINE_ENUM(NAME) NAME,
@@ -29,7 +31,7 @@ enum class bt_test_state_t {
 #undef BT_STATE_DEFINE_ENUM
 };
 
-inline void print_bt_test_state(bt_test_state_t state, void(* print)(const char*))
+inline void print_bt_test_state(bt_test_state_t state, const std::function<void(const char *)> &print)
 {
     switch (state) {
 #define BT_STATE_SWITCH_CASE(NAME) case bt_test_state_t::NAME: print(#NAME); break;

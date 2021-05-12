@@ -20,5 +20,4 @@ ble-power-consumption/mbed $ mbed compile -m <board> -t ARMC6 --source . --sourc
 
 ## Known Issues
 
- * Error when periodic advertising is initiated for the second time
-   * `Gap::startPeriodicAdvertising() failed: BLE_ERROR_INVALID_STATE: Invalid state`
+ * nrf52 doesn't receive disconnect signal until main board is reset when connected as peripheral, though it does trigger disconnect correctly when it is the main

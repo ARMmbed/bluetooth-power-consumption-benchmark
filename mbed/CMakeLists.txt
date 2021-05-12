@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.19.0 FATAL_ERROR)
 
 set(MBED_PATH ${CMAKE_CURRENT_SOURCE_DIR}/mbed-os CACHE INTERNAL "")
 set(MBED_CONFIG_PATH ${CMAKE_CURRENT_BINARY_DIR} CACHE INTERNAL "")
-set(APP_TARGET mbed-bluetooth-power-consumption-benchmark)
+set(APP_TARGET mbed)
 
 include(${MBED_PATH}/tools/cmake/app.cmake)
 
@@ -21,13 +21,16 @@ project(${APP_TARGET})
 
 target_include_directories(${APP_TARGET}
     PRIVATE
+        ./include
         ../shared/include
 )
 
 target_sources(${APP_TARGET}
     PRIVATE
-        source/main.cpp
-        ../shared/source/test_base.cpp
+        ./source/main.cpp
+        ./source/MbedBluetoothPlatform.cpp
+        ../shared/source/BluetoothPlatform.cpp
+        ../shared/source/PowerConsumption.cpp
 )
 
 target_link_libraries(${APP_TARGET}
