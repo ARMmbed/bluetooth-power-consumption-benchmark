@@ -17,8 +17,7 @@
 #ifndef TEST_BASE_H
 #define TEST_BASE_H 1
 
-#include <cstddef>
-#include <functional>
+#include <stddef.h>
 
 #include "bt_test_state.h"
 #include "BluetoothPlatform.h"
@@ -35,6 +34,8 @@ struct PowerConsumptionTest : protected BluetoothPlatform::EventHandler {
     void run();
 
 protected:
+    void onInitComplete() override;
+
     void onAdvertisingStart(const BluetoothPlatform::AdvertisingStartEvent &event) override;
     void onAdvertisingReport(const BluetoothPlatform::AdvertisingReportEvent &event) override;
     void onAdvertisingTimeout() override;
@@ -75,6 +76,16 @@ private:
     size_t _target_mac_len = 0;
     bt_test_state_t _state;
     bool _is_periodic = false;
+
+    // Trigger disconnection/de-sync. arg is a pointer to DisconnectContext (see PowerConsumptionTest.cpp).
+    static void triggerDisconnect(void* arg);
+    static void triggerDesync(void* arg);
+
+    // Call BluetoothPlatform::nextState. arg is a pointer to this.
+    static void callNextState(void* arg);
+
+    // Call BluetoothPlatform::printf. arg is a pointer to this.
+    static void callPrintf(void* arg, const char* s);
 };
 
 #endif // ! TEST_BASE_H

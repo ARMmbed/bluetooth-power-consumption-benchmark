@@ -17,9 +17,8 @@
 #ifndef BLUETOOTHPLATFORM_H
 #define BLUETOOTHPLATFORM_H
 
-#include <cstddef>
-#include <cstdint>
-#include <functional>
+#include <stddef.h>
+#include <stdint.h>
 
 struct BluetoothPlatform {
     /// Connection role, main or peripheral.
@@ -32,9 +31,12 @@ struct BluetoothPlatform {
     /// handles.
     using handle_t = void*;
 
+    /// Callback for the init, call and callIn methods.
+    using callback_t = void(*)(void*);
+
     /// Event raised when advertising starts.
     struct AdvertisingStartEvent {
-        AdvertisingStartEvent(uint32_t durationMs_, bool isPeriodic_, uint32_t periodicIntervalMs);
+        AdvertisingStartEvent(uint32_t durationMs_, bool isPeriodic_, uint32_t periodicIntervalMs_);
 
         /// The duration of advertising in ms.
         uint32_t durationMs;
@@ -96,6 +98,7 @@ struct BluetoothPlatform {
             connection_role_t role_,
             handle_t connectionHandle_
         );
+        ConnectEvent(intmax_t error_);
 
         /// The peer address type (platform defined, e.g. ble::peer_address_type_t on mbed).
         uint8_t peerAddressType;
@@ -152,6 +155,9 @@ struct BluetoothPlatform {
 
     /// Interface for event handlers.
     struct EventHandler {
+        /// Called when initialisation finishes.
+        virtual void onInitComplete() {}
+
         /// Called when advertising starts.
         virtual void onAdvertisingStart(const AdvertisingStartEvent &event) {}
 
@@ -185,26 +191,33 @@ struct BluetoothPlatform {
     /// Gets the event handler or nullptr if not present.
     EventHandler *getEventHandler();
 
-    /// Sets the event handler. Passing nullptr unsets.
+    /// Sets the event handler. nullptr unsets.
     void setEventHandler(EventHandler *eh);
 
-    /// Perform any needed initialisation, then call callback.
-    virtual int init(const std::function<void()>& callback) = 0;
+    /// Perform any needed initialisation, then call EventHandler::onInitComplete() if successful.
+    /// Returns non-zero status code without calling onInitComplete() upon error.
+    virtual int init() = 0;
+
+    /// Convenience function; combines setEventHandler() and init().
+    virtual int init(EventHandler *eh) { setEventHandler(eh); return init(); }
 
     /// Run the event loop (does not return).
     virtual void runEventLoop() = 0;
 
+    /// Gets the local device's MAC address.
+    virtual void getLocalAddress(uint8_t buf[6]) = 0;
+
     /// Call a function e.g. using an event queue to avoid stack overflow.
-    virtual void call(const std::function<void()>& fn) { fn(); }
+    virtual void call(callback_t fn, void* arg) { fn(arg); }
 
     /// Call a function after interval elapses.
-    virtual void callIn(uint32_t millis, const std::function<void()> &fn) = 0;
+    virtual void callIn(uint32_t millis, callback_t fn, void* arg) = 0;
 
     /// Print a platform-defined error code.
-    virtual void printError(intmax_t error, const char* msg) = 0;
+    virtual void printError(intmax_t error, const char *msg) = 0;
 
     /// Behaves like cstdio printf().
-    virtual void printf(const char* fmt, ...) = 0;
+    virtual void printf(const char *fmt, ...) = 0;
 
     /// Behaves like cstdio getchar().
     virtual int getchar() = 0;
@@ -231,13 +244,13 @@ struct BluetoothPlatform {
     virtual int startScanForPeriodicAdvertising() = 0;
 
     /// Establish a connection with the given peer.
-    virtual int establishConnection(uint8_t peerAddressType, const uint8_t* peerAddress) = 0;
+    virtual int establishConnection(uint8_t peerAddressType, const uint8_t *peerAddress) = 0;
 
     /// Sync to peer's periodic advertising.
     virtual int syncToPeriodicAdvertising(
         int32_t sid,
         uint8_t peerAddressType,
-        const uint8_t* peerAddress,
+        const uint8_t *peerAddress,
         uint32_t syncTimeoutMs
     ) = 0;
 

@@ -19,7 +19,6 @@
 
 #include <cctype>
 #include <chrono>
-#include <functional>
 #include <inttypes.h>
 
 #include "ble/BLE.h"
@@ -28,7 +27,7 @@
 
 #include "bt_test_state.h"
 #include <BluetoothPlatform.h>
-
+#include <config.h>
 struct MbedBluetoothPlatform : BluetoothPlatform, protected ble::Gap::EventHandler {
     MbedBluetoothPlatform(ble::BLE &ble, events::EventQueue &eq);
 
@@ -36,17 +35,19 @@ struct MbedBluetoothPlatform : BluetoothPlatform, protected ble::Gap::EventHandl
 
     const char *deviceName() const override;
 
-    int init(const std::function<void()> &callback) override;
+    int init() override;
 
     void runEventLoop() override;
 
-    void call(const std::function<void()> &fn) override;
+    void getLocalAddress(uint8_t buf[6]) override;
 
-    void callIn(uint32_t millis, const std::function<void()> &fn) override;
+    void call(BluetoothPlatform::callback_t fn, void* arg) override;
 
-    void printError(intmax_t error, const char* msg) override;
+    void callIn(uint32_t millis, BluetoothPlatform::callback_t fn, void* arg) override;
 
-    void printf(const char* fmt, ...) override;
+    void printError(intmax_t error, const char *msg) override;
+
+    void printf(const char *fmt, ...) override;
 
     int getchar() override;
 
@@ -62,12 +63,12 @@ struct MbedBluetoothPlatform : BluetoothPlatform, protected ble::Gap::EventHandl
 
     int startScanForPeriodicAdvertising() override;
 
-    int establishConnection(uint8_t peerAddressType, const uint8_t* peerAddress) override;
+    int establishConnection(uint8_t peerAddressType, const uint8_t *peerAddress) override;
 
     int syncToPeriodicAdvertising(
         int32_t sid,
         uint8_t peerAddressType,
-        const uint8_t* peerAddress,
+        const uint8_t *peerAddress,
         uint32_t syncTimeoutMs
     ) override;
 
@@ -94,10 +95,10 @@ protected:
 private:
     static constexpr uint16_t MAX_ADVERTISING_PAYLOAD_SIZE = 50;
 
-    ble::scan_duration_t _scan_time = ble::scan_duration_t(MBED_CONF_APP_SCAN_TIME);
-    events::EventQueue::duration _connect_time = events::EventQueue::duration(MBED_CONF_APP_CONNECT_TIME);
-    ble::adv_duration_t _advertise_time = ble::adv_duration_t(MBED_CONF_APP_ADVERTISE_TIME);
-    ble::periodic_interval_t _periodic_interval = ble::adv_duration_t(MBED_CONF_APP_PERIODIC_INTERVAL);
+    ble::scan_duration_t _scan_time = ble::scan_duration_t(CONFIG_SCAN_TIME);
+    ble::adv_duration_t _advertise_time = ble::adv_duration_t(CONFIG_ADVERTISE_TIME);
+    events::EventQueue::duration _connect_time = events::EventQueue::duration(CONFIG_CONNECT_TIME);
+    ble::periodic_interval_t _periodic_interval = ble::adv_duration_t(CONFIG_PERIODIC_INTERVAL);
 
     BLE &_ble;
     events::EventQueue &_event_queue;
@@ -110,8 +111,6 @@ private:
     bool _is_periodic = false;
     bool _is_scanner = false;
     bool _is_connecting_or_syncing = false;
-
-    std::function<void()> _callback;
 
     void scheduleEvents(BLE::OnEventsToProcessCallbackContext *context);
     void onInitComplete(BLE::InitializationCompleteCallbackContext *event);

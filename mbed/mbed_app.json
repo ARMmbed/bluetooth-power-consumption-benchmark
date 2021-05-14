@@ -1,23 +1,28 @@
 {
     "config": {
         "scan_time": {
-            "value": 1000,
+            "value": 6000,
             "help": "How long to wait for connection when scanning (10ms)",
             "required": true
         },
         "advertise_time": {
-            "value": 1000,
+            "value": 6000,
             "help": "How long to wait for connection when advertising (10ms)",
             "required": true
         },
         "connect_time": {
-            "value": 10000,
+            "value": 60000,
             "help": "How long to stay connected when master (ms)",
             "required": true
         },
         "periodic_interval": {
             "value": 50,
             "help": "Average interval for periodic advertising (10ms)",
+            "required": true
+        },
+        "use_per_adv_sync": {
+            "value": true,
+            "help": "Whether to support periodic advertising and sync",
             "required": true
         }
     }

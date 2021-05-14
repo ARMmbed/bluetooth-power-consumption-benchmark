@@ -14,16 +14,16 @@
  * limitations under the License.
  */
 
-#include <cassert>
-#include <cctype>
-#include <cinttypes>
-#include <cstddef>
-#include <cstdio>
-#include <cstring>
-#include <functional>
+#include <assert.h>
+#include <ctype.h>
+#include <inttypes.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <string.h>
 
-#include "bt_test_state.h"
-#include "PowerConsumptionTest.h"
+#include <bt_test_state.h>
+#include <config.h>
+#include <PowerConsumptionTest.h>
 
 PowerConsumptionTest::PowerConsumptionTest(BluetoothPlatform &platform) : _platform(platform)
 {}
@@ -33,10 +33,14 @@ PowerConsumptionTest::~PowerConsumptionTest()
     // Do nothing.
 }
 
+void PowerConsumptionTest::callNextState(void* arg)
+{
+    reinterpret_cast<PowerConsumptionTest*>(arg)->nextState();
+}
+
 void PowerConsumptionTest::run()
 {
-    _platform.setEventHandler(this);
-    _platform.init([this]() {nextState();});
+    _platform.init(this);
     _platform.runEventLoop();
 }
 
@@ -44,10 +48,10 @@ void PowerConsumptionTest::nextState()
 {
     updateState(bt_test_state_t::START);
     _platform.printf(
-        "Enter one of the following commands:\r\n"
-        " * a - Advertise\r\n"
-        " * s - Scan \r\n"
-        " * p - Toggle periodic adv/scan flag (currently %s)\r\n"
+        "Enter one of the following commands:\n"
+        " * a - Advertise\n"
+        " * s - Scan\n"
+        " * p - Toggle periodic adv/scan flag (currently %s)\n"
         " * m - Set/unset peer MAC address to connect by MAC instead of name\n",
         _is_periodic ? "ON" : "OFF"
     );
@@ -56,12 +60,15 @@ void PowerConsumptionTest::nextState()
         int c = _platform.getchar();
         _platform.putchar(c);
         switch (tolower(c)) {
-            case 'a': advertise();                              return;
-            case 's': scan();                                   return;
-            case 'p': togglePeriodic();                         return;
-            case 'm': readTargetMac();                          return;
-            case '\n':                                          break;
-            default:  _platform.printf("\r\nInvalid choice. "); break;
+            case 'a': advertise();      return;
+            case 's': scan();           return;
+            case 'p': togglePeriodic(); return;
+            case 'm': readTargetMac();  return;
+            default:
+                if (isprint(c)) {
+                    _platform.printf("Invalid choice \'%c\'. ", c);
+                }
+                break;
         }
     }
 }
@@ -86,9 +93,14 @@ void PowerConsumptionTest::scan()
 
 void PowerConsumptionTest::togglePeriodic()
 {
+#if CONFIG_USE_PER_ADV_SYNC
     _is_periodic = !_is_periodic;
-    _platform.printf("\r\nPeriodic mode toggled %s\r\n", _is_periodic ? "ON" : "OFF");
-    _platform.call([this]() { nextState(); });
+    _platform.printf("\nPeriodic mode toggled %s\n", _is_periodic ? "ON" : "OFF");
+#else
+    _platform.printf("\nProgram was not compiled with support for periodic sync\n");
+#endif
+
+    _platform.call(&callNextState, this);
 }
 
 void PowerConsumptionTest::readTargetMac()
@@ -98,9 +110,9 @@ void PowerConsumptionTest::readTargetMac()
     memset(buffer, 0, sizeof(buffer));
 
     _platform.printf(
-        "\r\n * Set target MAC by inputting 6 hex bytes (12 digits) with optional : separators"
-        "\r\n * Unset target MAC and use name to match by pressing ENTER with no input"
-        "\r\nTarget MAC: "
+        "\n * Set target MAC by inputting 6 hex bytes (12 digits) with optional : separators"
+        "\n * Unset target MAC and use name to match by pressing ENTER with no input"
+        "\nTarget MAC: "
     );
     int xdigits = 0;
     do {
@@ -123,22 +135,29 @@ void PowerConsumptionTest::readTargetMac()
     } while (length < MAC_ADDRESS_LENGTH);
 
     if (length == 0) {
-        _platform.printf("Will look for peer with name \"%s\"\r\n", _platform.deviceName());
+        _platform.printf("Will look for peer with name \"%s\"\n", _platform.deviceName());
     } else if (length == MAC_ADDRESS_LENGTH) {
-        _platform.printf("\r\nWill look for peer with MAC \"%s\"\r\n", buffer);
+        _platform.printf("\nWill look for peer with MAC \"%s\"\n", buffer);
         _target_mac_len = length;
         memcpy(_target_mac, buffer, length);
     } else {
-        _platform.printf("\r\nInvalid MAC \"%s\"\r\n", buffer);
+        _platform.printf("\nInvalid MAC \"%s\"\n", buffer);
     }
 
-    _platform.call([this]() { nextState(); });
+    _platform.call(&callNextState, this);
+}
+
+void PowerConsumptionTest::callPrintf(void* arg, const char* s)
+{
+    reinterpret_cast<PowerConsumptionTest*>(arg)->_platform.printf(s);
 }
 
 void PowerConsumptionTest::updateState(bt_test_state_t state)
 {
-    if (state != _state && state != bt_test_state_t::START) {
-        print_bt_test_state(state, [this](const char *s) { _platform.printf("\r\n#%s\r\n", s); });
+    if (state != _state) {
+        _platform.printf("\n#");
+        print_bt_test_state(state, &callPrintf, this);
+        _platform.printf("\n");
     }
 
     _state = state;
@@ -152,53 +171,70 @@ bool PowerConsumptionTest::isPeriodic() const
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // BluetoothPlatform::EventHandler overrides
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void PowerConsumptionTest::onInitComplete()
+{
+    uint8_t mac[6];
+    _platform.getLocalAddress(mac);
+    _platform.printf(
+        "#DEV - %s - %02x:%02x:%02x:%02x:%02x:%02x\n",
+        _platform.deviceName(),
+        mac[5],
+        mac[4],
+        mac[3],
+        mac[2],
+        mac[1],
+        mac[0]
+    );
+    _platform.call(&callNextState, this);
+}
+
 void PowerConsumptionTest::onAdvertisingStart(const BluetoothPlatform::AdvertisingStartEvent &event)
 {
     updateState(bt_test_state_t::ADVERTISE);
     if (event.isPeriodic) {
         _platform.printf(
-            "Periodic advertising for %" PRIu32 " started with interval %" PRIu32 "ms\r\n",
+            "Periodic advertising for %" PRIu32 " ms started with interval %" PRIu32 "ms\n",
             event.durationMs,
             event.periodicIntervalMs
         );
     } else {
-        _platform.printf("Advertising started for %" PRIu32 "ms\r\n", event.durationMs);
+        _platform.printf("Advertising started for %" PRIu32 "ms\n", event.durationMs);
     }
 }
 
 void PowerConsumptionTest::onScanStart(const BluetoothPlatform::ScanStartEvent &event)
 {
     updateState(bt_test_state_t::SCAN);
-    printf("Scanning started for %" PRIu32 "ms\r\n", event.scanDurationMs);
+    printf("Scanning started for %" PRIu32 "ms\n", event.scanDurationMs);
 }
 
 void PowerConsumptionTest::onAdvertisingReport(const BluetoothPlatform::AdvertisingReportEvent &event)
 {
-    bool match = false;
-
     // Format MAC as a string.
-    const uint8_t* mac_raw = event.peerAddressData;
+    const uint8_t *mac_raw = event.peerAddressData;
     assert(event.peerAddressSize == MAC_ADDRESS_LENGTH/2);
     char mac[MAC_ADDRESS_LENGTH + 1];
     sprintf(mac, "%02x%02x%02x%02x%02x%02x", mac_raw[5], mac_raw[4], mac_raw[3], mac_raw[2], mac_raw[1], mac_raw[0]);
 
+    // Log the discovered peer if configured to do so.
+#if CONFIG_LIST_SCAN_DEVS
+    const char *name = event.localName[0] == 0 ? "(unknown name)" : event.localName;
+    _platform.printf("Discovered \"%s\" (%s)\n", name, mac);
+#endif
+
     // Match by MAC or by name.
     if (_target_mac_len > 0 && memcmp(mac, _target_mac, _target_mac_len) == 0) {
-        _platform.printf("Peer matched by MAC\r\n");
-        match = true;
+        _platform.printf("Peer matched by MAC\n");
     } else if (_target_mac_len == 0 && strcmp(_platform.deviceName(), event.localName) == 0) {
-        _platform.printf("Peer matched by name\r\n");
-        match = true;
-    }
-
-    if (!match) {
+        _platform.printf("Peer matched by name\n");
+    } else {
         return;
     }
 
     // Connect or sync to the peer.
     if (event.isPeriodic) {
         printf(
-            "Syncing with peer \"%s\" (%s) with SID %d and periodic interval %" PRIu32 "ms\r\n",
+            "Syncing with peer \"%s\" (%s) with SID %d and periodic interval %" PRIu32 " ms\n",
             event.localName,
             mac,
             event.sid,
@@ -212,7 +248,7 @@ void PowerConsumptionTest::onAdvertisingReport(const BluetoothPlatform::Advertis
             5000
         );
     } else {
-        printf("Connecting to peer \"%s\" (%s)\r\n", event.localName, mac);
+        printf("Connecting to peer \"%s\" (%s)\n", event.localName, mac);
         _platform.establishConnection(
             event.peerAddressType,
             event.peerAddressData
@@ -223,15 +259,43 @@ void PowerConsumptionTest::onAdvertisingReport(const BluetoothPlatform::Advertis
 void PowerConsumptionTest::onAdvertisingTimeout()
 {
     updateState(bt_test_state_t::START);
-    _platform.printf("Advertising timed out\r\n");
-    _platform.call([this]() {nextState();});
+    _platform.printf("Advertising timed out\n");
+    _platform.call(&callNextState, this);
 }
 
 void PowerConsumptionTest::onScanTimeout()
 {
     updateState(bt_test_state_t::START);
-    _platform.printf("Scanning timed out\r\n");
-    _platform.call([this]() {nextState();});
+    _platform.printf("Scanning timed out\n");
+    _platform.call(&callNextState, this);
+}
+
+struct DisconnectContext {
+    PowerConsumptionTest* this_ptr;
+    BluetoothPlatform::handle_t handle;
+
+    DisconnectContext(PowerConsumptionTest* this_ptr_, BluetoothPlatform::handle_t handle_)
+    : this_ptr(this_ptr_)
+    , handle(handle_)
+    {}
+};
+
+void PowerConsumptionTest::triggerDisconnect(void* arg)
+{
+    auto ctx = reinterpret_cast<DisconnectContext*>(arg);
+    ctx->this_ptr->_platform.printf("Triggering disconnect...\n");
+    ctx->this_ptr->_platform.disconnect(ctx->handle);
+    ctx->this_ptr->nextState();
+    delete ctx;
+}
+
+void PowerConsumptionTest::triggerDesync(void* arg)
+{
+    auto ctx = reinterpret_cast<DisconnectContext*>(arg);
+    ctx->this_ptr->_platform.printf("Stopping sync...\n");
+    ctx->this_ptr->_platform.stopSync(ctx->handle);
+    ctx->this_ptr->nextState();
+    delete ctx;
 }
 
 void PowerConsumptionTest::onConnection(const BluetoothPlatform::ConnectEvent &event)
@@ -243,28 +307,22 @@ void PowerConsumptionTest::onConnection(const BluetoothPlatform::ConnectEvent &e
 
     _platform.printf("Connected to peer as ");
     if (event.role == BluetoothPlatform::connection_role_t::main) {
-        _platform.printf("main\r\n");
+        _platform.printf("main\n");
         updateState(bt_test_state_t::CONNECT_MAIN);
         // Trigger disconnect after timeout when connected as main.
-        _platform.callIn(
-            10000,
-            [this, event]()
-            {
-                _platform.printf("Triggering disconnect...\r\n");
-                _platform.disconnect(event.connectionHandle);
-                nextState();
-            }
-        );
+        auto ctx = new DisconnectContext(this, event.connectionHandle); // Deleted by handler.
+        _platform.callIn(CONFIG_CONNECT_TIME, &triggerDisconnect, ctx);
     } else {
-        _platform.printf("peripheral\r\n");
+        // Wait for disconnect when peripheral.
+        _platform.printf("peripheral\n");
         updateState(bt_test_state_t::CONNECT_PERIPHERAL);
     }
 }
 
 void PowerConsumptionTest::onDisconnect()
 {
-    _platform.printf("Disconnected\r\n");
-    _platform.call([this]() {nextState();});
+    _platform.printf("Disconnected\n");
+    _platform.call(&callNextState, this);
 }
 
 void PowerConsumptionTest::onPeriodicSync(const BluetoothPlatform::PeriodicSyncEvent &event)
@@ -272,22 +330,15 @@ void PowerConsumptionTest::onPeriodicSync(const BluetoothPlatform::PeriodicSyncE
     if (event.error) {
         _platform.printError(event.error, "Sync with periodic advertising failed");
     } else {
-       _platform.printf("Synced with periodic advertising\r\n");
+       _platform.printf("Synced with periodic advertising\n");
     }
 
-    _platform.callIn(
-        10000,
-        [this, event]()
-        {
-            _platform.printf("Ending sync...\r\n");
-            _platform.stopSync(event.syncHandle);
-            nextState();
-        }
-    );
+    auto ctx = new DisconnectContext(this, event.syncHandle); // Deleted by handler.
+    _platform.callIn(CONFIG_CONNECT_TIME, &triggerDesync, ctx);
 }
 
 void PowerConsumptionTest::onSyncLoss()
 {
-    _platform.printf("Periodic sync lost\r\n");
-    _platform.call([this]() {nextState();});
+    _platform.printf("Periodic sync lost\n");
+    _platform.call(&callNextState, this);
 }

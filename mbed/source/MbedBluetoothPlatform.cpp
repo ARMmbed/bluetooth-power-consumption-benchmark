@@ -16,7 +16,6 @@
 
 #include <cassert>
 #include <cstdarg>
-#include <functional>
 #include <limits>
 
 #include <ble/BLE.h>
@@ -46,10 +45,7 @@ void MbedBluetoothPlatform::onInitComplete(BLE::InitializationCompleteCallbackCo
         return;
     }
 
-    print_mac_address();
-    if (_callback) {
-        call(_callback);
-    }
+    getEventHandler()->onInitComplete();
 }
 
 int MbedBluetoothPlatform::commonStartAdvertising()
@@ -101,10 +97,18 @@ const char *MbedBluetoothPlatform::deviceName() const
     return "Power Consumption (mbed)";
 }
 
-int MbedBluetoothPlatform::init(const std::function<void()> &callback)
+void MbedBluetoothPlatform::getLocalAddress(uint8_t buf[6])
+{
+    ble::own_address_type_t addr_type;
+    ble::address_t address;
+    BLE::Instance().gap().getAddress(addr_type, address);
+
+    memcpy(buf, address.data(), 6);
+}
+
+int MbedBluetoothPlatform::init()
 {
     _ble.gap().setEventHandler(this);
-    _callback = callback;
     ble_error_t error = _ble.init(this, &MbedBluetoothPlatform::onInitComplete);
     if (error) {
         printError(error, "Error returned by BLE::init");
@@ -118,23 +122,23 @@ void MbedBluetoothPlatform::runEventLoop()
     _event_queue.dispatch_forever();
 }
 
-void MbedBluetoothPlatform::call(const std::function<void()> &fn)
+void MbedBluetoothPlatform::call(BluetoothPlatform::callback_t fn, void* arg)
 {
-    _event_queue.call(fn);
+    _event_queue.call(fn, arg);
 }
 
-void MbedBluetoothPlatform::callIn(uint32_t millis, const std::function<void()> &fn)
+void MbedBluetoothPlatform::callIn(uint32_t millis, BluetoothPlatform::callback_t fn, void* arg)
 {
     assert(millis < std::numeric_limits<int>::max());
-    _event_queue.call_in(std::chrono::milliseconds(millis), fn);
+    _event_queue.call_in(std::chrono::milliseconds(millis), fn, arg);
 }
 
-void MbedBluetoothPlatform::printError(intmax_t error, const char* msg)
+void MbedBluetoothPlatform::printError(intmax_t error, const char *msg)
 {
     print_error(static_cast<ble_error_t>(error), msg);
 }
 
-void MbedBluetoothPlatform::printf(const char* fmt, ...)
+void MbedBluetoothPlatform::printf(const char *fmt, ...)
 {
     va_list args;
     va_start(args, fmt);
@@ -229,7 +233,7 @@ int MbedBluetoothPlatform::startScanForPeriodicAdvertising()
     return commonStartScan();
 }
 
-int MbedBluetoothPlatform::establishConnection(uint8_t peerAddressType, const uint8_t* peerAddress)
+int MbedBluetoothPlatform::establishConnection(uint8_t peerAddressType, const uint8_t *peerAddress)
 {
     ble_error_t error = _ble.gap().connect(
         static_cast<ble::peer_address_type_t::type>(peerAddressType),
@@ -246,7 +250,7 @@ int MbedBluetoothPlatform::establishConnection(uint8_t peerAddressType, const ui
 int MbedBluetoothPlatform::syncToPeriodicAdvertising(
     int32_t sid,
     uint8_t peerAddressType,
-    const uint8_t* peerAddress,
+    const uint8_t *peerAddress,
     uint32_t syncTimeoutMs
 )
 {
@@ -322,13 +326,13 @@ void MbedBluetoothPlatform::onAdvertisingStart(const ble::AdvertisingStartEvent 
     );
 }
 
-char* get_name_of_peer(const ble::AdvertisingReportEvent &event)
+char *get_name_of_peer(const ble::AdvertisingReportEvent &event)
 {
     ble::AdvertisingDataParser adv_parser(event.getPayload());
     while (adv_parser.hasNext()) {
         ble::AdvertisingDataParser::element_t field = adv_parser.next();
         if (field.type == ble::adv_data_type_t::COMPLETE_LOCAL_NAME) {
-            char* buffer = new char[field.value.size() + 1];
+            char *buffer = new char[field.value.size() + 1];
             memcpy(buffer, field.value.data(), field.value.size());
             buffer[field.value.size()] = 0;
             return buffer;

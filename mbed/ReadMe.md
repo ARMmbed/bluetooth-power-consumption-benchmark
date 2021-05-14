@@ -2,7 +2,12 @@
 
 ## Configuration
 
-There are compile-time configurable parameters specific to this test which can be placed in `mbed_app.json`:
+Configuration is through variables in `mbed_app.json`:
+
+ * `scan_time`: How long to wait for connection when scanning
+ * `advertise_time`: How long to wait for connection when advertising
+ * `connect_time`: How long to stay connected when master
+ * `periodic_interval`: Average interval for periodic advertising
 
 ## Compilation
 
