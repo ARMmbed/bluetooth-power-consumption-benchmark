@@ -1,0 +1,8 @@
+.build
+*.py*
+GPATH
+GRTAGS
+GTAGS
+cmake_build
+.vscode
+tags
