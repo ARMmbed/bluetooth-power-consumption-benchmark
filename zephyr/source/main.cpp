@@ -14,36 +14,12 @@
  * limitations under the License.
  */
 
-#include <cctype>
-#include <chrono>
-#include <inttypes.h>
-
-#include <ble/BLE.h>
-
-#include <MbedBluetoothPlatform.h>
+#include <ZephyrBluetoothPlatform.h>
 #include <PowerConsumptionTest.h>
 
-/** This program enters different BLE states according to operator input, allowing power consumption to be
- * measured.
- */
-
-using ble::BLE;
-
-events::EventQueue event_queue;
-
-void schedule_ble_events(BLE::OnEventsToProcessCallbackContext *context)
+void main()
 {
-    event_queue.call(Callback<void()>(&context->ble, &BLE::processEvents));
-}
-
-int main()
-{
-    BLE &ble = BLE::Instance();
-    MbedBluetoothPlatform platform(ble, event_queue);
+    ZephyrBluetoothPlatform &platform = ZephyrBluetoothPlatform::instance();
     PowerConsumptionTest app(platform);
-
-    ble.onEventsToProcess(schedule_ble_events);
     app.run();
-
-    return 0;
 }

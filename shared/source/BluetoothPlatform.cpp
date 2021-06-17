@@ -14,9 +14,8 @@
  * limitations under the License.
  */
 
-#include <cstddef>
-#include <cstdint>
-#include <functional>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <BluetoothPlatform.h>
 
@@ -100,4 +99,8 @@ BluetoothPlatform::ConnectEvent::ConnectEvent(
 , error(error_)
 , role(role_)
 , connectionHandle(connectionHandle_)
+{}
+
+
+BluetoothPlatform::ConnectEvent::ConnectEvent(intmax_t error_) : error(error_)
 {}

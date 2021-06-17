@@ -1,0 +1,16 @@
+config APP_SCAN_TIME
+    int "The time to scan in ms"
+
+config APP_ADVERTISE_TIME
+    int "The time to advertise in ms"
+
+config APP_CONNECT_TIME
+    int "The time to stay connected as main in ms"
+
+config APP_PERIODIC_INTERVAL
+    int "The periodic advertising interval in ms"
+
+config APP_LIST_SCAN_DEVS
+    bool "Whether to list devices during scanning"
+
+source 'Kconfig.zephyr'
