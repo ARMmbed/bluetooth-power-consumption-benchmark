@@ -25,5 +25,14 @@
             "help": "Whether to support periodic advertising and sync",
             "required": true
         }
+    },
+    "target_overrides": {
+        "*": {
+            "cordio.trace-cordio-wsf-traces": 0,
+            "cordio.trace-hci-packets": 0,
+            "cordio.trace-pal-echoes": 0,
+            "mbed-trace.enable": 0,
+            "ble.trace-human-readable-enums": 0
+        }
     }
 }
