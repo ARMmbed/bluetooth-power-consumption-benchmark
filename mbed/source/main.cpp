@@ -19,6 +19,7 @@
 #include <inttypes.h>
 
 #include <ble/BLE.h>
+#include "mbed-trace/mbed_trace.h"
 
 #include <MbedBluetoothPlatform.h>
 #include <PowerConsumptionTest.h>
@@ -38,11 +39,12 @@ void schedule_ble_events(BLE::OnEventsToProcessCallbackContext *context)
 
 int main()
 {
+    mbed_trace_init();
+
     BLE &ble = BLE::Instance();
     MbedBluetoothPlatform platform(ble, event_queue);
-    PowerConsumptionTest app(platform);
-
     ble.onEventsToProcess(schedule_ble_events);
+    PowerConsumptionTest app(platform);
     app.run();
 
     return 0;
