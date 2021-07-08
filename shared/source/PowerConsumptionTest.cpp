@@ -64,6 +64,7 @@ void PowerConsumptionTest::nextState()
             case 's': scan();           return;
             case 'p': togglePeriodic(); return;
             case 'm': readTargetMac();  return;
+            case '\n': case ' ':        break;
             default:
                 if (isprint(c)) {
                     _platform.printf("Invalid choice \'%c\'. ", c);
@@ -224,8 +225,7 @@ void PowerConsumptionTest::onAdvertisingReport(const BluetoothPlatform::Advertis
     } else {
         // Log the peer if configured to do so.
         #if CONFIG_TRACE_UNMATCHED_PEERS
-            const char *name = event.localName[0] == 0 ? "(unknown name)" : event.localName;
-            _platform.printf("Unmatched peer: \"%s\" (%s)\n", name, mac);
+            _platform.printf("Unmatched peer: \"%s\" (%s)\n", event.localName, mac);
         #endif
         return;
     }

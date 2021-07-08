@@ -463,15 +463,17 @@ static bool nameCallback(bt_data *data, void *user_data)
 
 void ZephyrBluetoothPlatform::scanCallback(const bt_le_scan_recv_info *info, net_buf_simple *buf)
 {
+    auto is_periodic = info->interval > 0;
+
     {
-        // Don't call the event handler if we are already connecting or syncing.
+        // Don't call the event handler if we are already connecting or syncing, or the periodic flags don't match.
         auto error = k_mutex_lock(&_instance._scan_sync_mutex, K_FOREVER);
         if (error) {
             _instance.printError(error, "k_mutex_lock");
             return;
         }
 
-        auto ignore = _instance._is_connecting_or_syncing;
+        auto ignore = (_instance._is_connecting_or_syncing) && (is_periodic == _instance._is_periodic);
         k_mutex_unlock(&_instance._scan_sync_mutex);
         if (ignore) {
             return;
@@ -488,7 +490,7 @@ void ZephyrBluetoothPlatform::scanCallback(const bt_le_scan_recv_info *info, net
             info->addr->a.val,
             sizeof(info->addr->a.val),
             local_name,
-            info->interval > 0,
+            is_periodic,
             info->interval
         )
     );
