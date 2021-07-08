@@ -216,18 +216,17 @@ void PowerConsumptionTest::onAdvertisingReport(const BluetoothPlatform::Advertis
     char mac[MAC_ADDRESS_LENGTH + 1];
     sprintf(mac, "%02x%02x%02x%02x%02x%02x", mac_raw[5], mac_raw[4], mac_raw[3], mac_raw[2], mac_raw[1], mac_raw[0]);
 
-    // Log the discovered peer if configured to do so.
-#if CONFIG_LIST_SCAN_DEVS
-    const char *name = event.localName[0] == 0 ? "(unknown name)" : event.localName;
-    _platform.printf("Discovered \"%s\" (%s)\n", name, mac);
-#endif
-
     // Match by MAC or by name.
     if (_target_mac_len > 0 && memcmp(mac, _target_mac, _target_mac_len) == 0) {
         _platform.printf("Peer matched by MAC\n");
     } else if (_target_mac_len == 0 && strcmp(_platform.deviceName(), event.localName) == 0) {
         _platform.printf("Peer matched by name\n");
     } else {
+        // Log the peer if configured to do so.
+        #if CONFIG_TRACE_UNMATCHED_PEERS
+            const char *name = event.localName[0] == 0 ? "(unknown name)" : event.localName;
+            _platform.printf("Unmatched peer: \"%s\" (%s)\n", name, mac);
+        #endif
         return;
     }
 

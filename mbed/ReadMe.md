@@ -8,6 +8,8 @@ Configuration is through variables in `mbed_app.json`:
  * `advertise_time`: How long to wait for connection when advertising
  * `connect_time`: How long to stay connected when master
  * `periodic_interval`: Average interval for periodic advertising
+ * `use_per_adv_sync`: Whether to support periodic advertising and sync
+ * `trace_unmatched_peers`: Whether to trace unmatched peers when scanning
 
 ## Compilation
 
