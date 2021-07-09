@@ -8,7 +8,7 @@ Some test values can be configured via [CMakeLists.txt](./CMakeLists.txt):
  * `CONFIG_APP_ADVERTISE_TIME`: How long to wait for connection when advertising (ms)
  * `CONFIG_APP_CONNECT_TIME`: How long to stay connected when master (ms)
  * `CONFIG_APP_PERIODIC_INTERVAL`: Average interval for periodic advertising (ms)
- * `CONFIG_APP_LIST_SCAN_DEVS`: List devices when scanning (0: disable, 1: enable)
+ * `CONFIG_APP_TRACE_UNMATCHED_PEERS`: List unmatched peers when scanning (0: disable, 1: enable)
 
 ## Compilation
 

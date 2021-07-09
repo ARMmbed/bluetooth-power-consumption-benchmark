@@ -28,6 +28,7 @@
 #include "bt_test_state.h"
 #include <BluetoothPlatform.h>
 #include <config.h>
+
 struct MbedBluetoothPlatform : BluetoothPlatform, protected ble::Gap::EventHandler {
     MbedBluetoothPlatform(ble::BLE &ble, events::EventQueue &eq);
 
@@ -103,19 +104,20 @@ private:
     BLE &_ble;
     events::EventQueue &_event_queue;
 
+    ble::advertising_handle_t _adv_handle = ble::INVALID_ADVERTISING_HANDLE;
     uint8_t _adv_buffer[MAX_ADVERTISING_PAYLOAD_SIZE];
     ble::AdvertisingDataBuilder _adv_data_builder;
-
-    ble::advertising_handle_t _adv_handle = ble::INVALID_ADVERTISING_HANDLE;
 
     bool _is_periodic = false;
     bool _is_scanner = false;
     bool _is_connecting_or_syncing = false;
+    bool _ignore_timeout = false;
 
     void scheduleEvents(BLE::OnEventsToProcessCallbackContext *context);
     void onInitComplete(BLE::InitializationCompleteCallbackContext *event);
-    int commonStartAdvertising();
+    int commonStartAdvertising(ble::advertising_handle_t handle);
     int commonStartScan();
+    void stopPeriodicAdvertising();
 };
 
 #endif // ! MBEDBLUETOOTHPLATFORM_H

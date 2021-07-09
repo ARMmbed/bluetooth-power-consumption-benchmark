@@ -14,9 +14,11 @@
  * limitations under the License.
  */
 
+#include <algorithm>
 #include <cassert>
 #include <cstdarg>
 #include <limits>
+#include <vector>
 
 #include <ble/BLE.h>
 
@@ -28,6 +30,7 @@ using ble::BLE;
 MbedBluetoothPlatform::MbedBluetoothPlatform(BLE &ble, events::EventQueue &eq)
 : _ble(ble)
 , _event_queue(eq)
+, _adv_handle(ble::INVALID_ADVERTISING_HANDLE)
 , _adv_data_builder(_adv_buffer)
 {}
 
@@ -48,12 +51,23 @@ void MbedBluetoothPlatform::onInitComplete(BLE::InitializationCompleteCallbackCo
     getEventHandler()->onInitComplete();
 }
 
-int MbedBluetoothPlatform::commonStartAdvertising()
+int MbedBluetoothPlatform::commonStartAdvertising(ble::advertising_handle_t handle)
 {
     _is_scanner = false;
     _is_connecting_or_syncing = false;
+    _ignore_timeout = false;
 
-    auto error = _ble.gap().startAdvertising(_adv_handle, _advertise_time);
+    _adv_data_builder.clear();
+    _adv_data_builder.setFlags();
+    _adv_data_builder.setName(deviceName());
+
+    auto error = _ble.gap().setAdvertisingPayload(handle, _adv_data_builder.getAdvertisingData());
+    if (error) {
+        printError(error, "Gap::setAdvertisingPayload() failed");
+        return error;
+    }
+
+    error = _ble.gap().startAdvertising(handle, _advertise_time);
     if (error) {
         printError(error, "Gap::startAdvertising() failed");
     }
@@ -65,6 +79,7 @@ int MbedBluetoothPlatform::commonStartScan()
 {
     _is_scanner = true;
     _is_connecting_or_syncing = false;
+    _ignore_timeout = false;
 
     ble::ScanParameters scan_params;
     scan_params.setOwnAddressType(ble::own_address_type_t::RANDOM);
@@ -81,12 +96,35 @@ int MbedBluetoothPlatform::commonStartScan()
         return error;
     }
 
-    auto eh = getEventHandler();
-    if (eh) {
-        eh->onScanStart(ScanStartEvent(_scan_time.valueInMs()));
+    getEventHandler()->onScanStart(ScanStartEvent(_scan_time.valueInMs()));
+    return 0;
+}
+
+void MbedBluetoothPlatform::stopPeriodicAdvertising()
+{
+    assert(_is_periodic);
+    assert(!_is_scanner);
+    assert(_adv_handle != ble::INVALID_ADVERTISING_HANDLE);
+
+    auto error = _ble.gap().stopPeriodicAdvertising(_adv_handle);
+    if (error) {
+        printError(error, "Gap::stopPeriodicAdvertising failed");
+        return;
     }
 
-    return 0;
+    error = _ble.gap().stopAdvertising(_adv_handle);
+    if (error) {
+        printError(error, "Gap::stopAdvertising failed");
+        return;
+    }
+
+    error = _ble.gap().destroyAdvertisingSet(_adv_handle);
+    if (error) {
+        printError(error, "Gap::destroyAdvertisingSet failed");
+        return;
+    }
+
+    _adv_handle = ble::INVALID_ADVERTISING_HANDLE;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -167,23 +205,15 @@ bool MbedBluetoothPlatform::isPeriodicAdvertisingAvailable()
 
 int MbedBluetoothPlatform::startAdvertising()
 {
+    assert(!_is_connecting_or_syncing);
     _is_periodic = false;
-    if (_adv_handle != ble::LEGACY_ADVERTISING_HANDLE) {
-        _adv_handle = ble::LEGACY_ADVERTISING_HANDLE;
-        _adv_data_builder.setFlags();
-        _adv_data_builder.setName(deviceName());
-        auto error = _ble.gap().setAdvertisingPayload(_adv_handle, _adv_data_builder.getAdvertisingData());
-        if (error) {
-            printError(error, "Gap::setAdvertisingPayload() failed");
-            return error;
-        }
-    }
-
-    return commonStartAdvertising();
+    return commonStartAdvertising(ble::LEGACY_ADVERTISING_HANDLE);
 }
 
 int MbedBluetoothPlatform::startPeriodicAdvertising()
 {
+    assert(!_is_connecting_or_syncing);
+
     // Perform feature test.
     if (!isPeriodicAdvertisingAvailable()) {
         printf("Periodic advertising not supported, cannot run test.\r\n");
@@ -192,49 +222,49 @@ int MbedBluetoothPlatform::startPeriodicAdvertising()
 
     _is_periodic = true;
 
-    // Only perform this setup when we are starting fresh or have previously performed legacy advertising.
-    if (_adv_handle == ble::INVALID_ADVERTISING_HANDLE || _adv_handle == ble::LEGACY_ADVERTISING_HANDLE) {
-        // Set parameters and payload with a new advertising set.
-        ble::AdvertisingParameters adv_parameters(ble::advertising_type_t::NON_CONNECTABLE_UNDIRECTED);
-        adv_parameters.setUseLegacyPDU(false);
-        auto error = _ble.gap().createAdvertisingSet(&_adv_handle, adv_parameters);
-        if (error) {
-            printError(error, "Gap::createAdvertisingSet() failed");
-            return error;
-        }
-
-        error = _ble.gap().setAdvertisingParameters(_adv_handle, adv_parameters);
-        if (error) {
-            printError(error, "Gap::setAdvertisingParameters() failed");
-            return error;
-        }
-
-        _adv_data_builder.setFlags();
-        _adv_data_builder.setName(deviceName());
-        error = _ble.gap().setAdvertisingPayload(_adv_handle, _adv_data_builder.getAdvertisingData());
-        if (error) {
-            printError(error, "Gap::setAdvertisingPayload() failed");
-            return error;
-        }
+    // Set parameters and payload with a new advertising set.
+    ble::AdvertisingParameters adv_parameters(
+        ble::advertising_type_t::NON_CONNECTABLE_UNDIRECTED,
+        ble::adv_interval_t(ble::millisecond_t(200))
+    );
+    adv_parameters.setUseLegacyPDU(false);
+    auto error = _ble.gap().createAdvertisingSet(&_adv_handle, adv_parameters);
+    if (error) {
+        printError(error, "Gap::createAdvertisingSet() failed");
+        return error;
     }
 
-    return commonStartAdvertising();
+    error = _ble.gap().setAdvertisingParameters(_adv_handle, adv_parameters);
+    if (error) {
+        printError(error, "Gap::setAdvertisingParameters() failed");
+        return error;
+    }
+
+    return commonStartAdvertising(_adv_handle);
 }
 
 int MbedBluetoothPlatform::startScan()
 {
+    assert(_is_connecting_or_syncing == false);
     _is_periodic = false;
     return commonStartScan();
 }
 
 int MbedBluetoothPlatform::startScanForPeriodicAdvertising()
 {
+    assert(_is_connecting_or_syncing == false);
     _is_periodic = true;
     return commonStartScan();
 }
 
 int MbedBluetoothPlatform::establishConnection(uint8_t peerAddressType, const uint8_t *peerAddress)
 {
+    assert(_is_scanner);
+    assert(!_is_periodic);
+    assert(!_is_connecting_or_syncing);
+
+    _ignore_timeout = true;
+
     ble_error_t error = _ble.gap().connect(
         static_cast<ble::peer_address_type_t::type>(peerAddressType),
         ble::address_t(peerAddress),
@@ -242,9 +272,10 @@ int MbedBluetoothPlatform::establishConnection(uint8_t peerAddressType, const ui
     );
     if (error) {
         printError(error, "Gap::connect failed");
+        return error;
     }
 
-    return error;
+    return 0;
 }
 
 int MbedBluetoothPlatform::syncToPeriodicAdvertising(
@@ -254,6 +285,10 @@ int MbedBluetoothPlatform::syncToPeriodicAdvertising(
     uint32_t syncTimeoutMs
 )
 {
+    assert(_is_scanner);
+    assert(_is_periodic);
+    assert(!_is_connecting_or_syncing);
+
     ble_error_t error = _ble.gap().createSync(
         static_cast<ble::peer_address_type_t::type>(peerAddressType),
         ble::address_t(peerAddress),
@@ -263,9 +298,12 @@ int MbedBluetoothPlatform::syncToPeriodicAdvertising(
     );
     if (error) {
         printError(error, "Gap::createSync failed");
+        return error;
     }
 
-    return error;
+    _is_connecting_or_syncing = true;
+    _ignore_timeout = true;
+    return 0;
 }
 
 int MbedBluetoothPlatform::disconnect(handle_t connection_handle)
@@ -326,20 +364,26 @@ void MbedBluetoothPlatform::onAdvertisingStart(const ble::AdvertisingStartEvent 
     );
 }
 
-char *get_name_of_peer(const ble::AdvertisingReportEvent &event)
+static void inline copy_string(std::vector<char> &v, const char* s, size_t n)
+{
+    n++;
+    v.resize(n);
+    std::copy(s, s + n, &v[0]);
+    *v.end() = 0;
+}
+
+bool get_name_of_peer(const ble::AdvertisingReportEvent &event, std::vector<char> &name)
 {
     ble::AdvertisingDataParser adv_parser(event.getPayload());
     while (adv_parser.hasNext()) {
         ble::AdvertisingDataParser::element_t field = adv_parser.next();
         if (field.type == ble::adv_data_type_t::COMPLETE_LOCAL_NAME) {
-            char *buffer = new char[field.value.size() + 1];
-            memcpy(buffer, field.value.data(), field.value.size());
-            buffer[field.value.size()] = 0;
-            return buffer;
+            copy_string(name, reinterpret_cast<const char*>(field.value.data()), field.value.size());
+            return true;
         }
     }
 
-    return nullptr;
+    return false;
 }
 
 void MbedBluetoothPlatform::onAdvertisingReport(const ble::AdvertisingReportEvent &event)
@@ -348,48 +392,77 @@ void MbedBluetoothPlatform::onAdvertisingReport(const ble::AdvertisingReportEven
         return;
     }
 
-    auto name = get_name_of_peer(event);
+    if (event.isPeriodicIntervalPresent() != _is_periodic) {
+        return;
+    }
+
+    std::vector<char> name;
+    if (!get_name_of_peer(event, name)) {
+        static constexpr const char default_name[] = "(unknown name)";
+        copy_string(name, default_name, sizeof(default_name));
+    }
     getEventHandler()->onAdvertisingReport(
         AdvertisingReportEvent(
             static_cast<int32_t>(event.getSID()),
             event.getPeerAddressType().value(),
             event.getPeerAddress().data(),
             event.getPeerAddress().size(),
-            const_cast<const char*>(name),
+            const_cast<const char*>(&name[0]),
             event.isPeriodicIntervalPresent(),
             event.isPeriodicIntervalPresent() ? event.getPeriodicInterval().valueInMs() : 0UL
         )
     );
-
-    delete[] name;
 }
 
 void MbedBluetoothPlatform::onAdvertisingEnd(const ble::AdvertisingEndEvent &event)
 {
-    if (!_is_connecting_or_syncing) {
+    if (_is_periodic) {
+        stopPeriodicAdvertising();
+    }
+
+    if (!_ignore_timeout && !_is_connecting_or_syncing) {
         getEventHandler()->onAdvertisingTimeout();
     }
+
+    _ignore_timeout = true;
 }
 
 void MbedBluetoothPlatform::onScanTimeout(const ble::ScanTimeoutEvent&)
 {
-    if (!_is_connecting_or_syncing) {
+    if (!_ignore_timeout && !_is_connecting_or_syncing) {
         getEventHandler()->onScanTimeout();
     }
+
+    _ignore_timeout = true;
 }
 
 void MbedBluetoothPlatform::onConnectionComplete(const ble::ConnectionCompleteEvent &event)
 {
-    auto eh = getEventHandler();
-    if (eh == nullptr) {
-        return;
-    }
-
     _is_connecting_or_syncing = true;
+    _ignore_timeout = true;
 
     auto handle = event.getConnectionHandle();
-    eh->onConnection(
+    getEventHandler()->onConnection(
         ConnectEvent(
+            event.getPeerAddressType().value(),
+            event.getPeerAddress().data(),
+            event.getPeerAddress().size(),
+            static_cast<intmax_t>(event.getStatus()),
+            _is_scanner ? connection_role_t::main : connection_role_t::peripheral,
+            reinterpret_cast<handle_t>(&handle)
+        )
+    );
+}
+
+void MbedBluetoothPlatform::onPeriodicAdvertisingSyncEstablished(const ble::PeriodicAdvertisingSyncEstablishedEvent &event)
+{
+    _is_connecting_or_syncing = true;
+    _ignore_timeout = true;
+
+    auto handle = event.getSyncHandle();
+    getEventHandler()->onPeriodicSync(
+        PeriodicSyncEvent(
+            static_cast<int32_t>(event.getSid()),
             event.getPeerAddressType().value(),
             event.getPeerAddress().data(),
             event.getPeerAddress().size(),
@@ -408,31 +481,9 @@ void MbedBluetoothPlatform::onDisconnectionComplete(const ble::DisconnectionComp
     }
 
     _is_connecting_or_syncing = false;
+    _ignore_timeout = true;
 
     getEventHandler()->onDisconnect();
-}
-
-void MbedBluetoothPlatform::onPeriodicAdvertisingSyncEstablished(const ble::PeriodicAdvertisingSyncEstablishedEvent &event)
-{
-    auto eh = getEventHandler();
-    if (eh == nullptr) {
-        return;
-    }
-
-    _is_connecting_or_syncing = true;
-
-    auto handle = event.getSyncHandle();
-    eh->onPeriodicSync(
-        PeriodicSyncEvent(
-            static_cast<int32_t>(event.getSid()),
-            event.getPeerAddressType().value(),
-            event.getPeerAddress().data(),
-            event.getPeerAddress().size(),
-            static_cast<intmax_t>(event.getStatus()),
-            _is_scanner ? connection_role_t::main : connection_role_t::peripheral,
-            reinterpret_cast<handle_t>(&handle)
-        )
-    );
 }
 
 void MbedBluetoothPlatform::onPeriodicAdvertisingSyncLoss(const ble::PeriodicAdvertisingSyncLoss &event)
@@ -442,6 +493,7 @@ void MbedBluetoothPlatform::onPeriodicAdvertisingSyncLoss(const ble::PeriodicAdv
     }
 
     _is_connecting_or_syncing = false;
+    _ignore_timeout = true;
 
     getEventHandler()->onSyncLoss();
 }

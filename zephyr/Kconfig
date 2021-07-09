@@ -10,7 +10,7 @@ config APP_CONNECT_TIME
 config APP_PERIODIC_INTERVAL
     int "The periodic advertising interval in ms"
 
-config APP_LIST_SCAN_DEVS
-    bool "Whether to list devices during scanning"
+config APP_TRACE_UNMATCHED_PEERS
+    bool "Whether to trace unmatched peers during scanning"
 
 source 'Kconfig.zephyr'
