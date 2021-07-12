@@ -1,0 +1,45 @@
+name: Build for zephyr
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+jobs:
+  build:
+      name: Build for zephyr
+      runs-on: ubuntu-latest
+      container: zephyrprojectrtos/zephyr-build:latest
+      steps:
+        - name: Get zephyr
+          run: |
+            sudo mkdir -p /workdir/zephyr
+            cd /workdir/zephyr
+            sudo west init
+            sudo west update
+
+        # Workaround for GitHub permission issues.
+        - name: Grant global rwx permission
+          run: |
+            sudo chmod 777 -R /workdir || true
+            sudo chmod 777 -R /github || true
+            sudo chmod 777 -R /home || true
+            sudo chmod 777 -R /__w || true
+
+        - name: Checkout sources
+          uses: actions/checkout@v2
+
+        - name: Build for zephyr
+          run: |
+            sudo chmod 777 -R /workdir || true
+            sudo chmod 777 -R /github || true
+            sudo chmod 777 -R /home || true
+            sudo chmod 777 -R /__w || true
+            mkdir -p zephyr/BUILD
+            cd zephyr/BUILD
+            export ZEPHYR_BASE="/workdir/zephyr/zephyr"
+            export Zephyr_Dir="/workdir/zephyr/zephyr"
+            export CMAKE_PREFIX_PATH="/workdir/zephyr/zephyr"
+            cmake -DBOARD=nrf52840dk_nrf52840 -GNinja ..
+            cmake --build .
