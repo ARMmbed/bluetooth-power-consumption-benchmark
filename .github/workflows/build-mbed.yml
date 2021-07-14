@@ -12,16 +12,14 @@ jobs:
       runs-on: ubuntu-latest
       container: mbedos/mbed-os-env:latest
       steps:
-        - name: Checkout
+        - name: Checkout sources
           uses: actions/checkout@v2
 
-        - name: Install dependencies
+        - name: Build for mbed
           run: |
             cd mbed
-            pip install --upgrade mbed-cli mbed-tools
+            pip install --upgrade --user mbed-cli mbed-tools
             mbed deploy
-
-        - name: Build
-          run: |
-            cmake -S mbed -B cmake_build -GNinja -DCMAKE_BUILD_TYPE=Debug
-            cmake --build cmake_build
+            mbed-tools configure -t GCC_ARM -m NRF52840_DK
+            cmake -S . -B cmake_build/NRF52840_DK/develop/GCC_ARM -GNinja -DCMAKE_BUILD_TYPE=Debug
+            cmake --build cmake_build/NRF52840_DK/develop/GCC_ARM
